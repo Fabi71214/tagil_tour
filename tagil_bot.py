@@ -12,6 +12,7 @@ DB_CONFIG = {
     "port": 5432
 }
 vrem_tour={}
+list_tour_admin={}
 TEST_CURRENT_TG_ID = 8048744008
 bot = AsyncTeleBot('8266635215:AAHYpAj1GheTN-ux7VFNvEH39Jn5eGtQfXY', parse_mode='HTML')
 db_pool = None
@@ -19,6 +20,7 @@ db_pool = None
 markup = types.ReplyKeyboardMarkup(resize_keyboard=True)
 btn1 = types.KeyboardButton("Добавить Турнир")
 btn2 = types.KeyboardButton("Мои турниры")
+empy_btn=types.InlineKeyboardButton(text=" ", callback_data=" ")
 markup.row(btn1, btn2)
 
 admin_kea = types.ReplyKeyboardMarkup(resize_keyboard=True)
@@ -41,7 +43,7 @@ async def cmd_start(message: types.Message):
                                 id SERIAL PRIMARY KEY,
                                 Login TEXT NOT NULL,
                                 Password TEXT NOT NULL,
-                                Created_admin TEXT NOT NULL,
+                                Created_admin BIGINT NOT NULL,
                                 Nam_users INTEGER DEFAULT 4,
                                 Status TEXT)""")
 
@@ -142,21 +144,20 @@ async def send_tour_1(message: types.Message):
 
 #РЕАЛИЗАЦЫЯ ФУНКЦЫОНАЛА АДМИНА
 #добовление админа
-@bot.message_handler(func=lambda message: message.text == "otec_andrey")
+@bot.message_handler(func=lambda message: message.text == "1")
 async def add_admin(message: types.Message):
     async with db_pool.acquire() as conn:
         await conn.execute("""UPDATE users
                                 SET Admin = TRUE
                                 WHERE Tg_id = $1;""",TEST_CURRENT_TG_ID)
     await bot.send_message(message.chat.id, f"Вы повышаны до админа!",reply_markup=admin_kea)
-@bot.message_handler(func=lambda message: message.text == "ne_otec_andrey")
+@bot.message_handler(func=lambda message: message.text == "2")
 async def clouse_admin(message: types.Message):
     async with db_pool.acquire() as conn:
         await conn.execute("""UPDATE users
                                 SET Admin = FALSE
                                 WHERE Tg_id = $1;""",TEST_CURRENT_TG_ID)
     await bot.send_message(message.chat.id, f"Вы понижены до юсера :(",reply_markup=markup)
-
 #создание турнира
 @bot.message_handler(func=lambda message: message.text == "Создать турнир")
 async def add_tour_1(message: types.Message):
@@ -219,7 +220,7 @@ async def add_tour_4(call: types.CallbackQuery):
             await conn.execute("""
                 INSERT INTO shapka_tour (Login,Password,Created_admin,Nam_users,Status) 
                 VALUES ($1, $2, $3, $4, $5)
-            """,vrem_tour[call.message.chat.id]["log"], vrem_tour[call.message.chat.id]["pasw"],str(TEST_CURRENT_TG_ID), int(vrem_tour[call.message.chat.id]["kol_vo"]),"set")
+            """,vrem_tour[call.message.chat.id]["log"], vrem_tour[call.message.chat.id]["pasw"],TEST_CURRENT_TG_ID, int(vrem_tour[call.message.chat.id]["kol_vo"]),"set")
         
         await bot.send_message(call.message.chat.id, "Турнир успешно создан")
     else:
@@ -228,7 +229,69 @@ async def add_tour_4(call: types.CallbackQuery):
         del vrem_tour[call.message.chat.id]  
     await bot.answer_callback_query(call.id)
     await bot.delete_message(chat_id=call.message.chat.id, message_id=call.message.message_id)    
-
+#вывод списка турниров
+@bot.message_handler(func=lambda message: message.text == "Вести турнир")
+async def func_list_tour_admin(message: types.Message):
+    global list_tour_admin
+    async with db_pool.acquire() as conn:
+        chek_admin=await conn.fetchrow("""SELECT Admin FROM users
+                                WHERE Tg_id = $1;""",TEST_CURRENT_TG_ID)
+        if chek_admin and chek_admin['admin']:
+            tour_admin= await conn.fetch("""SELECT login FROM shapka_tour
+                                WHERE created_admin = $1;""",TEST_CURRENT_TG_ID)
+            if len(tour_admin)==0:
+                await bot.send_message(message.chat.id, "У вас нет созданных турниров")
+            else:
+                total_pages = (len(tour_admin) + 2) // 3
+                list_tour_admin[message.chat.id]={"list":total_pages,"octual_list":0}
+                z=0
+                for d in range(total_pages):
+                    list_tour_admin[message.chat.id][d]=[]
+                    for n in range(3):
+                        if z<len(tour_admin):
+                            list_tour_admin[message.chat.id][d].append(types.InlineKeyboardButton(text=tour_admin[z]["login"], callback_data=f"creatadmin_{tour_admin[z]["login"]}"))
+                        else:
+                            list_tour_admin[message.chat.id][d].append(types.InlineKeyboardButton(text=" ", callback_data=" "))
+                        z+=1
+                tur=types.InlineKeyboardMarkup()
+                l1=types.InlineKeyboardButton(text="<=", callback_data="st_<")
+                l2=types.InlineKeyboardButton(text="=>", callback_data="st_>")
+                table=types.InlineKeyboardButton(text=f"{list_tour_admin[message.chat.id]["octual_list"]+1}/{list_tour_admin[message.chat.id]["list"]}", callback_data=" ")
+                tur.row(list_tour_admin[message.chat.id][list_tour_admin[message.chat.id]["octual_list"]][0])
+                tur.row(list_tour_admin[message.chat.id][list_tour_admin[message.chat.id]["octual_list"]][1])
+                tur.row(list_tour_admin[message.chat.id][list_tour_admin[message.chat.id]["octual_list"]][2])
+                tur.row(l1,table,l2)
+                await bot.send_message(message.chat.id, f"Выберете Турнир:",reply_markup=tur)
+@bot.callback_query_handler(func=lambda call: call.data.startswith('st_'))
+async def next_or_row(call: types.CallbackQuery):
+    global list_tour_admin
+    answer=call.data.split('_')[1]
+    dddd=list_tour_admin[call.message.chat.id]["octual_list"]
+    if answer=="<" and list_tour_admin[call.message.chat.id]["octual_list"]!=0:
+        list_tour_admin[call.message.chat.id]["octual_list"]-=1
+    if answer==">" and list_tour_admin[call.message.chat.id]["octual_list"]<list_tour_admin[call.message.chat.id]["list"]-1:
+        list_tour_admin[call.message.chat.id]["octual_list"]+=1
+    if list_tour_admin[call.message.chat.id]["octual_list"]==dddd:
+        pass
+    else:
+        tur=types.InlineKeyboardMarkup()
+        l1=types.InlineKeyboardButton(text="<=", callback_data="st_<")
+        l2=types.InlineKeyboardButton(text="=>", callback_data="st_>")
+        table=types.InlineKeyboardButton(text=f"{list_tour_admin[call.message.chat.id]["octual_list"]+1}/{list_tour_admin[call.message.chat.id]["list"]}", callback_data=" ")
+        tur.row(list_tour_admin[call.message.chat.id][list_tour_admin[call.message.chat.id]["octual_list"]][0])
+        tur.row(list_tour_admin[call.message.chat.id][list_tour_admin[call.message.chat.id]["octual_list"]][1])
+        tur.row(list_tour_admin[call.message.chat.id][list_tour_admin[call.message.chat.id]["octual_list"]][2])
+        tur.row(l1,table,l2)
+        await bot.edit_message_text(chat_id=call.message.chat.id,text="Выберете Турнир:",message_id=call.message.message_id,reply_markup=tur)
+#управление турниром
+@bot.callback_query_handler(func=lambda call: call.data.startswith('creatadmin_'))
+async def next_or_row(call: types.CallbackQuery):
+    tour_login=call.data.split('_')[1]
+    async with db_pool.acquire() as conn:
+        tour= await conn.fetchrow("""SELECT * FROM shapka_tour
+                            WHERE login = $1;""",tour)
+    if tour["status"]=="set":
+        pass
 #МАСКА ДЛЯ ТЕСТИРОВАНИЯ
 @bot.message_handler(commands=['maska'])
 async def cmd_start(message: types.Message):
