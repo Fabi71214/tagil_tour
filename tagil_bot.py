@@ -287,11 +287,28 @@ async def next_or_row(call: types.CallbackQuery):
 @bot.callback_query_handler(func=lambda call: call.data.startswith('creatadmin_'))
 async def next_or_row(call: types.CallbackQuery):
     tour_login=call.data.split('_')[1]
+    list_tour_admin[call.message.chat.id]["login"]=tour_login
     async with db_pool.acquire() as conn:
         tour= await conn.fetchrow("""SELECT * FROM shapka_tour
-                            WHERE login = $1;""",tour)
-    if tour["status"]=="set":
+                            WHERE login = $1;""",tour_login)
+        if tour["status"]=="set":
+            users_tour = await conn.fetch("""SELECT * FROM jurnal
+                                WHERE id_tour = $1;""",tour["id"])
+            list_tour_admin[call.message.chat.id]["nam_users"]=len(users_tour)
+            list_tour_admin[call.message.chat.id]["tour_users"]=tour["nam_users"]
+            tur_pilot=types.InlineKeyboardMarkup()
+            delet=types.InlineKeyboardButton(text="Удалить турнир", callback_data="Delete")
+            start=types.InlineKeyboardButton(text="Начать турнир", callback_data="Start")
+            tur_pilot.row(start)        
+            tur_pilot.row(delet)
+            await bot.send_message(call.message.chat.id, f"""Турнир на этапе регистрации учасников \n \nLogin: {tour["login"]}\nPassword: {tour["password"]}
+Количество учасников: {len(users_tour)}/{tour["nam_users"]}""",reply_markup=tur_pilot)
+@bot.callback_query_handler(func=lambda call: call.data.startswith('Start'))
+async def start_tour(call: types.CallbackQuery):
+    if list_tour_admin[call.message.chat.id]["nam_users"]==list_tour_admin[call.message.chat.id]["tour_users"]:
         pass
+    else:
+        await bot.send_message(call.message.chat.id, f"Учасники не наброны")
 #МАСКА ДЛЯ ТЕСТИРОВАНИЯ
 @bot.message_handler(commands=['maska'])
 async def cmd_start(message: types.Message):
